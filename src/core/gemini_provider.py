@@ -2,7 +2,7 @@ import os
 import time
 from typing import Any, Dict, Generator, Optional
 
-import google.genai as genai
+import google.generativeai as genai
 
 from src.core.llm_provider import LLMProvider
 
