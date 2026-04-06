@@ -51,7 +51,7 @@ graph TD
 Dựa trên dữ liệu thực tế từ file `logs/2026-04-06.log`:
 
 - **Độ trễ trung bình (Latency)**: ~4500ms (Bao gồm thời gian gọi API MovieDB và LLM suy luận, ).
-- **Token tiêu thụ trung bình**: ~1400-2500 tokens/task (input + output).
+- **Token tiêu thụ trung bình**: ~250 input + ~1000 output tokens/task
 - **Chi phí vận hành**: thấp (Tối ưu bằng cách giới hạn `max_steps = 10` để tránh lặp vô hạn).
 
 ---
@@ -73,16 +73,18 @@ Dựa trên dữ liệu thực tế từ file `logs/2026-04-06.log`:
 | Tình huống | Prompt | Kết quả Chatbot | Kết quả Agent | Người thắng |
 | :--- | :--- | :--- | :--- |
 | Hỏi phim theo genre và năm |"Những bộ phim hành động hay nào ra mắt năm 2025 trở đi?" | Hallucinate phim - Knowledge cutoff (GPT-4o only - Gemini có cập nhật thông tin) | Tự tìm ra phim ra mắt trong năm 2025 và 2026 | **Agent** (except Gemini) |
-| Hỏi phim dựa trên phim đang thích | "Hãy giới thiệu cho tôi những bộ phim hay nếu tôi thích Chúa tể những chiếc nhẫn." | Recommend list phim thành công, có mô tả | Recommend list phim thành công, nhưng có thêm rating IMDB đi kèm |
+| Hỏi phim dựa trên phim đang thích | "Hãy giới thiệu cho tôi những bộ phim hay nếu tôi thích Chúa tể những chiếc nhẫn." | Recommend list phim thành công, có mô tả | Recommend list phim thành công, nhưng có thêm rating IMDB đi kèm | **Agent**
 
-
+- Log output từ các test đã lưu vào file trong folder `report/test_logs/`
+- Đã viết thêm các hệ thống metric (split input/output token count) và logging(tracking tool calls) để đo performance
 ---
 
 ## 6. Đánh giá tính sẵn sàng Production (Production Readiness)
 
 - **Bảo mật**: Input tham số Tool được xử lý qua hàm `strip()` và `int()` để tránh lỗi cú pháp.
 - **Guardrails**: Thiết lập `max_steps` để ngắt Agent nếu nó rơi vào vòng lặp suy luận quẩn.
-- **Mở rộng**: Hệ thống đã sẵn sàng để thêm các Tool đặt vé thực tế hoặc kết nối Database người dùng.
+- **Mở rộng**: Hệ thống đã sẵn sàng để thêm các Tool đặt vé thực tế, link đến Streaming Service (Apple TV, Amazon, Netflix) hoặc kết nối Database người dùng.
+- 1 request của agent tốn 10-15x input token so với chatbot, nên có thể quality của kết quả sẽ not worth cost, đặc biệt là khi model đã cập nhật thông tin tốt từ internet như `gemini-flash`
 
 ---
 
