@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from typing import List, Dict, Any, Optional
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
@@ -19,7 +20,7 @@ class ReActAgent:
     def get_system_prompt(self) -> str:
         """
         System prompt for ReAct-style agent.
-        Instructs agent to follow Thought-Action-Observation format.
+        Instructs agent to use JSON for Action blocks.
         """
         tool_descriptions = "\n".join([f"- {t['name']}: {t['description']}" for t in self.tools])
         return f"""You are an intelligent assistant. You have access to the following tools:
@@ -27,12 +28,23 @@ class ReActAgent:
 {tool_descriptions}
 
 Follow this format strictly:
+
 Thought: What do I need to do? What information do I need from the user?
-Action: tool_name(argument)
+Action:
+```json
+{{
+  "action": "tool_name",
+  "action_input": "target_argument"
+}}
+```
+
+The recipient of the Action will provide an Observation.
 Observation: [Result from tool execution]
 
-Continue until you can provide a Final Answer.
-Final Answer: Provide a clear, helpful response."""
+Continue this Thought/Action/Observation loop as needed.
+When you have the final answer, output:
+
+Final Answer: [Your clear and helpful response here]"""
 
     def run(self, user_input: str) -> str:
         """
@@ -54,6 +66,8 @@ Final Answer: Provide a clear, helpful response."""
             
             response_text = result["content"]
             full_response += response_text
+
+            print(f"Response Text: {response_text}")
             
             logger.log_event("AGENT_STEP", {
                 "step": steps,
@@ -67,28 +81,61 @@ Final Answer: Provide a clear, helpful response."""
                 logger.log_event("AGENT_END", {"steps": steps, "status": "completed"})
                 return final_answer
             
-            # 3. Parse Action from response
-            action_match = re.search(r"Action:\s*(\w+)\((.*?)\)", response_text)
+            # 3. Parse JSON Action from response
+            # Look for JSON blocks inside ```json ... ``` or just { ... }
+            action_match = re.search(r"```json\s*(.*?)\s*```", response_text, re.DOTALL)
+            if not action_match:
+                # Fallback to finding the first { and last }
+                action_match = re.search(r"({.*})", response_text, re.DOTALL)
             
             if action_match:
-                tool_name = action_match.group(1)
-                args_str = action_match.group(2)
-                
-                # 4. Execute tool
-                observation = self._execute_tool(tool_name, args_str)
-                
-                # 5. Append observation to prompt for next iteration
-                current_prompt = f"""{full_response}
+                try:
+                    action_json = json.loads(action_match.group(1))
+                    tool_name = action_json.get("action")
+                    args_str = action_json.get("action_input")
+                    
+                    if tool_name and args_str is not None:
+                        # Ensure args_str is a string for the tool functions
+                        if not isinstance(args_str, str):
+                            args_str = str(args_str)
+                            
+                        # 4. Execute tool
+                        print(f"Executing Tool: {tool_name} with args: {args_str}")
+                        observation = self._execute_tool(tool_name, args_str)
+                        print(f"Tool Observation: {observation}")
+                        
+                        logger.log_event("AGENT_STEP", {
+                            "step": steps,
+                            "type": "tool_execution",
+                            "tool_name": tool_name,
+                            "args_str": args_str,
+                            "observation": observation
+                        })
+                        
+                        # 5. Append observation to prompt for next iteration
+                        current_prompt = f"""{full_response}
 
 Observation: {observation}
 
 Continue with your next Thought and Action, or provide a Final Answer."""
+                    else:
+                        raise ValueError("Missing 'action' or 'action_input' in JSON")
+                except (json.JSONDecodeError, ValueError) as e:
+                    current_prompt = f"""{full_response}
+
+Observation: Error parsing Action JSON: {str(e)}. Please ensure your Action is a valid JSON block with "action" and "action_input" keys."""
             else:
                 # No valid action found, guide LLM back to format
                 current_prompt = f"""{full_response}
 
-Observation: Error - Could not find Action or Final Answer. Please follow the correct format:
-Action: tool_name(argument)
+Observation: Error - Could not find a valid JSON Action block or Final Answer. Please follow the required format:
+Action:
+```json
+{{
+  "action": "tool_name",
+  "action_input": "argument"
+}}
+```
 
 Try again:"""
             
